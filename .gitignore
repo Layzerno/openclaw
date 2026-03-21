@@ -123,3 +123,9 @@ dist/protocol.schema.json
 # Synthing
 **/.stfolder/
 .dev-state
+
+# svn
+.svn
+
+# 自定义安装脚本
+openclaw安装脚本

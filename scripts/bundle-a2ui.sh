@@ -93,3 +93,15 @@ else
 fi
 
 echo "$current_hash" > "$HASH_FILE"
+# # 定义 pnpm 命令变量，自动检测是否需要加 .exe
+# PNPM_CMD="pnpm"
+# if grep -q Microsoft /proc/version 2>/dev/null && command -v pnpm.exe >/dev/null 2>&1; then
+#   PNPM_CMD="pnpm.exe"
+# fi
+
+# $PNPM_CMD -s exec tsc -p "$A2UI_RENDERER_DIR/tsconfig.json"
+# if command -v rolldown >/dev/null 2>&1 && rolldown --version >/dev/null 2>&1; then
+#   rolldown -c "$A2UI_APP_DIR/rolldown.config.mjs"
+# else
+#   $PNPM_CMD -s dlx rolldown -c "$A2UI_APP_DIR/rolldown.config.mjs"
+# fi

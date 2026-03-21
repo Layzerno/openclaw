@@ -1,0 +1,100 @@
+
+git clone https://github.com/openclaw/openclaw.git
+cd openclaw
+
+//pnpm install //这句总是编译不通过，改为跳过下载预编译包，用源码编译就可以了
+$env:NODE_LLAMA_CPP_SKIP_DOWNLOAD="true"; pnpm install
+pnpm ui:build # auto-installs UI deps on first run
+//build需要用到bash命令，如果只装了docker的话，wsl里的Linux版本（名字是docker-desktop）是没有bash的，所以先安装Ubuntu
+//wsl --list --verbose
+//wsl --install -d Ubuntu
+//wsl --set-default Ubuntu
+//bundle-a2ui.sh脚本里面用的是WSL路径，所以Ubuntu里还得装node.js来给Canvas A2UI前端组件打包。但是下面这个还是报错。网上又找到一个不用WSL的，详见下。
+//--wsl 
+//--sudo apt update
+//--sudo apt install -y nodejs npm
+//--npm install -g pnpm
+
+//网上又找到一个不用WSL的
+//# 1. 编译 A2UI Renderer
+pnpm exec tsc -p vendor/a2ui/renderers/lit/tsconfig.json
+//# 2. 使用 Rolldown 打包
+pnpm exec rolldown -c apps/shared/OpenClawKit/Tools/CanvasA2UI/rolldown.config.mjs
+//# 3. 验证文件是否生成（应该出现 src/canvas-host/a2ui/a2ui.bundle.js）
+
+//上述成功生成后，删除package.json里build里的pnpm canvas:a2ui:bundle &&即可  因为上面那俩命令就是执行的这个
+pnpm build
+//第一次执行这个，后面不需要了
+pnpm openclaw onboard --install-daemon
+
+# Dev loop (auto-reload on TS changes)
+pnpm gateway:watch
+ 
+ 设置完后 可以在这里查看
+ http://127.0.0.1:18789/overview
+ 
+
+
+
+//关于卸载
+//方案一：
+openclaw uninstall 
+npm rm -g openclaw
+//其他方案：
+//官方卸载指令
+openclaw uninstall --all --yes --non-interactive
+//官方说的是等效命令里有删除用户目录下的.openclaw，网上有人说没删，关注下这几个目录，这个只卸载了gateway和.openclaw和工作区域，CLI仍然要执行npm rm -g openclaw来删除
+~/.openclaw
+~/.molthub
+~/.cache/openclaw
+~/.local/share/openclaw
+
+//如果是用下面的官方的Windows（Power Shell）安装的话
+//iwr -useb https://openclaw.ai/install.ps1 | iex
+//这个安装脚本是先下载node.js,再用npm安装，所以这种安装方式可以直接用npm卸载
+
+//可以先用npm list 看一下是不是他安装的
+npm list -g --depth=0
+//如果显示的有openclaw那就是npm安装的
+//卸载只需要
+npm rm -g openclaw
+//软件卸载了，但是有些配置还放在用户目录下，一般是C:\Users\用户名\.openclaw，(日志放在 C:\Users\用户\AppData\Local\Temp\openclaw么?)
+Remove-Item -Recurse -Force "$env:USERPROFILE\.openclaw"
+//看看服务还在不在
+Get-Service | findstr openclaw
+//看看命令还在不在
+openclaw --version
+//用npm list看看是不是安装包没了
+npm list -g --depth=0
+
+
+
+关于打包
+1. 在你的源码目录构建并生成 tgz（会自动跑 prepack）
+- 运行 pnpm install(用于安装项目所需的依赖包)
+- 运行 pnpm ui:build(UI依赖，没改的话也不用运行了)
+- 运行 pnpm build(将TS代码编译为JS代码)
+- 然后运行 npm pack
+   生成类似 openclaw-2026.3.10.tgz
+2. 把 tgz 放到安装脚本同目录，例如：
+- openclaw安装脚本/ITMC安装脚本/openclaw.tgz
+
+
+
+关于安装
+放到【openclaw安装脚本\ITMC安装脚本】底下
+终端管理员模式执行【./install.ps1】
+
+
+
+
+
+openclaw skills三个推荐来源
+内置skills
+clawhub
+github上awesome-openclaw-skills，找到后去clawhub搜
+
+
+
+
+

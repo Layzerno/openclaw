@@ -190,15 +190,15 @@ class Embeddings {
 // ============================================================================
 
 const MEMORY_TRIGGERS = [
-  /zapamatuj si|pamatuj|remember/i,
-  /preferuji|radši|nechci|prefer/i,
-  /rozhodli jsme|budeme používat/i,
+  /zapamatuj si|pamatuj|remember|记住|谨记/i,
+  /preferuji|radši|nechci|prefer|偏好|更喜欢|宁愿|不要|不想要/i,
+  /rozhodli jsme|budeme používat|决定|选定|采用|使用/i,
   /\+\d{10,}/,
   /[\w.-]+@[\w.-]+\.\w+/,
-  /můj\s+\w+\s+je|je\s+můj/i,
+  /můj\s+\w+\s+je|je\s+můj|我的.*是|是我的/i,
   /my\s+\w+\s+is|is\s+my/i,
-  /i (like|prefer|hate|love|want|need)/i,
-  /always|never|important/i,
+  /i (like|prefer|hate|love|want|need)|我(喜欢|讨厌|想要|需要|爱)/i,
+  /always|never|important|总是|从不|一定|必须|切记|重要/i,
 ];
 
 const PROMPT_INJECTION_PATTERNS = [
@@ -270,16 +270,16 @@ export function shouldCapture(text: string, options?: { maxChars?: number }): bo
 
 export function detectCategory(text: string): MemoryCategory {
   const lower = text.toLowerCase();
-  if (/prefer|radši|like|love|hate|want/i.test(lower)) {
+  if (/prefer|radši|like|love|hate|want|偏好|喜欢|讨厌|想要|希望|宁愿/i.test(lower)) {
     return "preference";
   }
-  if (/rozhodli|decided|will use|budeme/i.test(lower)) {
+  if (/rozhodli|decided|will use|budeme|决定|选定|采用|将会/i.test(lower)) {
     return "decision";
   }
-  if (/\+\d{10,}|@[\w.-]+\.\w+|is called|jmenuje se/i.test(lower)) {
+  if (/\+\d{10,}|@[\w.-]+\.\w+|is called|jmenuje se|叫|称为|名为/i.test(lower)) {
     return "entity";
   }
-  if (/is|are|has|have|je|má|jsou/i.test(lower)) {
+  if (/is|are|has|have|je|má|jsou|是|有|包含/i.test(lower)) {
     return "fact";
   }
   return "other";
