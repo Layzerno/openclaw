@@ -54,11 +54,12 @@ async function computeHash(inputPaths) {
 
 function run(cmd, cmdArgs, options) {
   const shell = process.platform === "win32";
+  const resolvedCmd = process.platform === "win32" && cmd === "pnpm" ? "pnpm.cmd" : cmd;
   if (dryRun) {
-    process.stdout.write(`[dry-run] ${cmd} ${cmdArgs.join(" ")}\n`);
+    process.stdout.write(`[dry-run] ${resolvedCmd} ${cmdArgs.join(" ")}\n`);
     return;
   }
-  const result = spawnSync(cmd, cmdArgs, { stdio: "inherit", shell, ...options });
+  const result = spawnSync(resolvedCmd, cmdArgs, { stdio: "inherit", shell, ...(options ?? {}) });
   if (typeof result.status === "number" && result.status !== 0) {
     process.exit(result.status);
   }
@@ -73,6 +74,49 @@ function hasRolldown() {
   const shell = process.platform === "win32";
   const result = spawnSync("rolldown", ["--version"], { stdio: "ignore", shell });
   return typeof result.status === "number" && result.status === 0;
+}
+
+async function findLocalRolldownCli() {
+  const directPath = path.join(
+    ROOT_DIR,
+    "node_modules",
+    ".pnpm",
+    "node_modules",
+    "rolldown",
+    "bin",
+    "cli.mjs",
+  );
+  if (existsSync(directPath)) {
+    return directPath;
+  }
+
+  const pnpmDir = path.join(ROOT_DIR, "node_modules", ".pnpm");
+  let entries;
+  try {
+    entries = await fs.readdir(pnpmDir);
+  } catch {
+    return null;
+  }
+
+  const candidates = entries
+    .filter((e) => e.startsWith("rolldown@"))
+    .sort((a, b) => a.localeCompare(b));
+
+  for (const entry of candidates) {
+    const candidatePath = path.join(
+      pnpmDir,
+      entry,
+      "node_modules",
+      "rolldown",
+      "bin",
+      "cli.mjs",
+    );
+    if (existsSync(candidatePath)) {
+      return candidatePath;
+    }
+  }
+
+  return null;
 }
 
 async function main() {
@@ -108,7 +152,18 @@ async function main() {
   if (hasRolldown()) {
     run("rolldown", ["-c", path.join(A2UI_APP_DIR, "rolldown.config.mjs")]);
   } else {
-    run("pnpm", ["-s", "dlx", "rolldown", "-c", path.join(A2UI_APP_DIR, "rolldown.config.mjs")]);
+    const localCli = await findLocalRolldownCli();
+    if (localCli) {
+      run("node", [localCli, "-c", path.join(A2UI_APP_DIR, "rolldown.config.mjs")]);
+    } else {
+      run("pnpm", [
+        "-s",
+        "dlx",
+        "rolldown",
+        "-c",
+        path.join(A2UI_APP_DIR, "rolldown.config.mjs"),
+      ]);
+    }
   }
 
   if (!dryRun) {
@@ -123,4 +178,3 @@ main().catch((err) => {
   process.stderr.write(`${String(err)}\n`);
   process.exit(1);
 });
-
