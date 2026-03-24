@@ -285,12 +285,45 @@ describe("executeSlashCommand directives", () => {
       "main",
       "model",
       "gpt-5-mini",
+      {
+        chatModelCatalog: [{ id: "gpt-5-mini", name: "gpt-5-mini", provider: "openai" }],
+      },
     );
 
     expect(request).toHaveBeenCalledWith("sessions.patch", {
       key: "main",
       model: "gpt-5-mini",
     });
+    expect(result.sessionPatch?.modelOverride).toEqual({
+      kind: "qualified",
+      value: "openai/gpt-5-mini",
+    });
+  });
+
+  it("uses the local model catalog to qualify raw /model overrides when the patch response omits provider", async () => {
+    const request = vi.fn(async (method: string, _payload?: unknown) => {
+      if (method === "sessions.patch") {
+        return {
+          ok: true,
+          key: "main",
+          resolved: {
+            model: "gpt-5-mini",
+          },
+        };
+      }
+      throw new Error(`unexpected method: ${method}`);
+    });
+
+    const result = await executeSlashCommand(
+      { request } as unknown as GatewayBrowserClient,
+      "main",
+      "model",
+      "gpt-5-mini",
+      {
+        chatModelCatalog: [{ id: "gpt-5-mini", name: "GPT-5 Mini", provider: "openai" }],
+      },
+    );
+
     expect(result.sessionPatch?.modelOverride).toEqual({
       kind: "qualified",
       value: "openai/gpt-5-mini",

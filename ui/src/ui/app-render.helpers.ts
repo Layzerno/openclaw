@@ -119,7 +119,7 @@ function renderCronFilterIcon(hiddenCount: number) {
               right: -6px;
               background: var(--color-accent, #6366f1);
               color: #fff;
-              border-radius: 999px;
+              border-radius: var(--radius-full);
               font-size: 9px;
               line-height: 1;
               padding: 1px 3px;
@@ -536,9 +536,19 @@ function resolveModelOverrideValue(state: AppViewState): string {
     return "";
   }
   // No local override recorded yet — fall back to server data.
-  // Include provider prefix so the value matches option keys (provider/model).
+  // Use the bare model name and resolve provider from the catalog rather than
+  // trusting the session's modelProvider, which may be the session default and
+  // not the model's actual provider (e.g. "zai" for a "deepseek-chat" model).
   const activeRow = resolveActiveSessionRow(state);
   if (activeRow && typeof activeRow.model === "string" && activeRow.model.trim()) {
+    const rawOverride = createChatModelOverride(activeRow.model.trim());
+    if (rawOverride) {
+      const normalized = normalizeChatModelOverrideValue(rawOverride, state.chatModelCatalog ?? []);
+      if (normalized) {
+        return normalized;
+      }
+    }
+    // Fallback: use server-provided provider if catalog lookup fails.
     return resolveServerChatModelValue(activeRow.model, activeRow.modelProvider);
   }
   return "";
@@ -546,7 +556,18 @@ function resolveModelOverrideValue(state: AppViewState): string {
 
 function resolveDefaultModelValue(state: AppViewState): string {
   const defaults = state.sessionsResult?.defaults;
-  return resolveServerChatModelValue(defaults?.model, defaults?.modelProvider);
+  const model = defaults?.model;
+  if (typeof model !== "string" || !model.trim()) {
+    return "";
+  }
+  const rawOverride = createChatModelOverride(model.trim());
+  if (rawOverride) {
+    const normalized = normalizeChatModelOverrideValue(rawOverride, state.chatModelCatalog ?? []);
+    if (normalized) {
+      return normalized;
+    }
+  }
+  return resolveServerChatModelValue(model, defaults?.modelProvider);
 }
 
 function buildChatModelOptions(
@@ -857,6 +878,70 @@ export function resolveSessionOptionGroups(
         option.label = `${option.label} · ${option.scopeLabel}`;
       }
     }
+  }
+
+  const allOptions = Array.from(groups.values()).flatMap((group) =>
+    group.options.map((option) => ({ groupLabel: group.label, option })),
+  );
+  const labels = new Map(allOptions.map(({ option }) => [option, option.label]));
+  const countAssignedLabels = () => {
+    const counts = new Map<string, number>();
+    for (const { option } of allOptions) {
+      const label = labels.get(option) ?? option.label;
+      counts.set(label, (counts.get(label) ?? 0) + 1);
+    }
+    return counts;
+  };
+  const labelIncludesScopeLabel = (label: string, scopeLabel: string) => {
+    const trimmedScope = scopeLabel.trim();
+    if (!trimmedScope) {
+      return false;
+    }
+    return (
+      label === trimmedScope ||
+      label.endsWith(` · ${trimmedScope}`) ||
+      label.endsWith(` / ${trimmedScope}`)
+    );
+  };
+
+  const globalCounts = countAssignedLabels();
+  for (const { groupLabel, option } of allOptions) {
+    const currentLabel = labels.get(option) ?? option.label;
+    if ((globalCounts.get(currentLabel) ?? 0) <= 1) {
+      continue;
+    }
+    const scopedPrefix = `${groupLabel} / `;
+    if (currentLabel.startsWith(scopedPrefix)) {
+      continue;
+    }
+    // Keep the agent visible once the native select collapses to a single chosen label.
+    labels.set(option, `${groupLabel} / ${currentLabel}`);
+  }
+
+  const scopedCounts = countAssignedLabels();
+  for (const { option } of allOptions) {
+    const currentLabel = labels.get(option) ?? option.label;
+    if ((scopedCounts.get(currentLabel) ?? 0) <= 1) {
+      continue;
+    }
+    if (labelIncludesScopeLabel(currentLabel, option.scopeLabel)) {
+      continue;
+    }
+    labels.set(option, `${currentLabel} · ${option.scopeLabel}`);
+  }
+
+  const finalCounts = countAssignedLabels();
+  for (const { option } of allOptions) {
+    const currentLabel = labels.get(option) ?? option.label;
+    if ((finalCounts.get(currentLabel) ?? 0) <= 1) {
+      continue;
+    }
+    // Fall back to the full key only when every friendlier disambiguator still collides.
+    labels.set(option, `${currentLabel} · ${option.key}`);
+  }
+
+  for (const { option } of allOptions) {
+    option.label = labels.get(option) ?? option.label;
   }
 
   return Array.from(groups.values());
