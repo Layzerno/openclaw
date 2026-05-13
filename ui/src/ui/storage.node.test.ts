@@ -129,6 +129,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -163,11 +164,14 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
       borderRadius: 50,
+    });
+    });
     });
 
     expect(loadSettings()).toMatchObject({
@@ -196,6 +200,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -213,11 +218,17 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
       navGroupsCollapsed: {},
       borderRadius: 50,
+    });
+    });
+    });
+    });
+    });
     });
 
     expect(loadSettings()).toMatchObject({
@@ -245,6 +256,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -264,6 +276,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -298,6 +311,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -314,6 +328,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -344,6 +359,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 320,
@@ -379,6 +395,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,
@@ -425,6 +442,7 @@ describe("loadSettings default gateway URL derivation", () => {
       chatFocusMode: false,
       chatShowThinking: true,
       chatShowToolCalls: true,
+      chatHideInternalPrompts: true,
       splitRatio: 0.6,
       navCollapsed: false,
       navWidth: 220,

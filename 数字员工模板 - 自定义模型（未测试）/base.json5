@@ -1,0 +1,61 @@
+{
+  secrets: {
+    providers: {
+      default: { source: "env" },
+    },
+  },
+
+  gateway: {
+    mode: "local",
+    bind: "lan",
+    port: 18789,
+
+    auth: {
+      mode: "token",
+    },
+
+    controlUi: {
+      enabled: true,
+      basePath: "",
+      dangerouslyDisableDeviceAuth: true,
+    },
+  },
+
+  models: {
+    providers: {
+      // 这里的 "itmc-changxiang-llm" 是你自己起的提供商代号
+      "itmc-changxiang-llm": {
+        baseUrl: "http://host.docker.internal:11350/itmcclaw/v1",
+        //分三个类型
+        api: "openai-completions",
+
+        // 告诉 OpenClaw 去读哪个环境变量来获取 API Key
+        apiKey: { source: "env", provider: "default", id: "ITMC_CHANGXIANG_LLM_KEY" },
+
+        // 你必须在这里声明你想用的模型
+        models: [
+          {
+            id: "qwen3.6-plus", // 模型真实 ID，必须和 API 侧一致
+            name: "qwen3.6-plus", // 在 UI 上显示的名字
+            reasoning: false, // 如果不是 DeepSeek-R1 这种纯推理模型，写 false
+            input: ["text"],
+            contextWindow: 128000, // 模型的最大上下文长度
+            maxTokens: 4096, // 单词回复最大生成的 token 数
+            cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          },
+        ],
+      },
+    },
+  },
+
+  agents: {
+    defaults: {
+      // 格式：提供商代号/模型ID
+      model: { primary: "itmc-changxiang-llm/qwen3.6-plus" },
+    },
+  },
+
+  skills: {
+    allowBundled: [],
+  },
+}

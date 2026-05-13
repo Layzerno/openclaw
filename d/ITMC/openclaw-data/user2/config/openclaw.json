@@ -1,0 +1,14 @@
+{
+  "gateway": {
+    "auth": {
+      "token": "11da60e842748e902e22b049c107d8dfc05446a3a8915e565e2a162897de2d4d"
+    },
+    "mode": "local",
+    "bind": "lan",
+    "controlUi": {
+      "allowedOrigins": [
+        "http://127.0.0.1:28789"
+      ]
+    }
+  }
+}

@@ -1,0 +1,16 @@
+模板需要手动进行的改动：
+1.将role.json5里的助手名称改为对应的数字员工名称。
+2.将用到的skill放到skills目录下
+需要程序进行的改动：
+1.将runtime.json5里的allowedOrigins改为实际域名和ip
+
+
+docker命令改为
+docker run -d --name openclaw-xgh-1 \
+  --restart unless-stopped \
+  -p 33333:18789 \
+  -v D:/ITMC/openclaw-data/test:/home/node/.openclaw \
+  -e OPENCLAW_GATEWAY_TOKEN=A123A \
+  -e MY_CUSTOM_LLM_KEY=sk-xxxxxx你的自定义API_KEYxxxxxx \
+  openclaw:local node dist/index.js gateway --bind lan --port 18789
+

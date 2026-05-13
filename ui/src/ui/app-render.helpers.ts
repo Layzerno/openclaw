@@ -181,6 +181,7 @@ export function renderChatControls(state: AppViewState) {
   const disableFocusToggle = state.onboarding;
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
   const showToolCalls = state.onboarding ? true : state.settings.chatShowToolCalls;
+  const hideInternalPrompts = state.onboarding ? true : state.settings.chatHideInternalPrompts;
   const focusActive = state.onboarding ? true : state.settings.chatFocusMode;
   const toolCallsIcon = html`
     <svg
@@ -294,6 +295,23 @@ export function renderChatControls(state: AppViewState) {
         ${toolCallsIcon}
       </button>
       <button
+        class="btn btn--sm btn--icon ${hideInternalPrompts ? "active" : ""}"
+        ?disabled=${disableThinkingToggle}
+        @click=${() => {
+          if (disableThinkingToggle) {
+            return;
+          }
+          state.applySettings({
+            ...state.settings,
+            chatHideInternalPrompts: !state.settings.chatHideInternalPrompts,
+          });
+        }}
+        aria-pressed=${hideInternalPrompts}
+        title=${disableThinkingToggle ? t("chat.onboardingDisabled") : t("chat.internalPromptsToggle")}
+      >
+        ${icons.eyeOff}
+      </button>
+      <button
         class="btn btn--sm btn--icon ${focusActive ? "active" : ""}"
         ?disabled=${disableFocusToggle}
         @click=${() => {
@@ -341,6 +359,7 @@ export function renderChatMobileToggle(state: AppViewState) {
   const disableFocusToggle = state.onboarding;
   const showThinking = state.onboarding ? false : state.settings.chatShowThinking;
   const showToolCalls = state.onboarding ? true : state.settings.chatShowToolCalls;
+  const hideInternalPrompts = state.onboarding ? true : state.settings.chatHideInternalPrompts;
   const focusActive = state.onboarding ? true : state.settings.chatFocusMode;
   const toolCallsIcon = html`
     <svg
@@ -463,6 +482,22 @@ export function renderChatMobileToggle(state: AppViewState) {
               title=${t("chat.toolCallsToggle")}
             >
               ${toolCallsIcon}
+            </button>
+            <button
+              class="btn btn--sm btn--icon ${hideInternalPrompts ? "active" : ""}"
+              ?disabled=${disableThinkingToggle}
+              @click=${() => {
+                if (!disableThinkingToggle) {
+                  state.applySettings({
+                    ...state.settings,
+                    chatHideInternalPrompts: !state.settings.chatHideInternalPrompts,
+                  });
+                }
+              }}
+              aria-pressed=${hideInternalPrompts}
+              title=${t("chat.internalPromptsToggle")}
+            >
+              ${icons.eyeOff}
             </button>
             <button
               class="btn btn--sm btn--icon ${focusActive ? "active" : ""}"

@@ -57,6 +57,7 @@ export type ChatProps = {
   thinkingLevel: string | null;
   showThinking: boolean;
   showToolCalls: boolean;
+  hideInternalPrompts: boolean;
   loading: boolean;
   sending: boolean;
   canAbort?: boolean;
@@ -113,6 +114,54 @@ export type ChatProps = {
 
 const COMPACTION_TOAST_DURATION_MS = 5000;
 const FALLBACK_TOAST_DURATION_MS = 8000;
+
+function extractTextFromNormalized(normalized: { content: Array<{ type: string; text?: string }> }) {
+  const parts: string[] = [];
+  for (const block of normalized.content) {
+    if (block.type !== "text") {
+      continue;
+    }
+    if (typeof block.text !== "string") {
+      continue;
+    }
+    const trimmed = block.text.trim();
+    if (!trimmed) {
+      continue;
+    }
+    parts.push(trimmed);
+  }
+  return parts.join("\n").trim();
+}
+
+function isInternalAutomationPromptText(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (!lower) {
+    return false;
+  }
+  if (!lower.includes("current time:")) {
+    return false;
+  }
+  return (
+    lower.startsWith("read heartbeat.md if it exists") ||
+    lower.includes("when reading heartbeat.md, use workspace file") ||
+    lower.startsWith("an async command you ran earlier has completed") ||
+    lower.startsWith("a scheduled reminder has been triggered") ||
+    lower.startsWith("a scheduled cron event was triggered")
+  );
+}
+
+function isInternalAutomationPromptMessage(message: unknown): boolean {
+  const normalized = normalizeMessage(message);
+  const role = normalizeRoleForGrouping(normalized.role);
+  if (role !== "user" && role !== "User") {
+    return false;
+  }
+  const text = extractTextFromNormalized(normalized);
+  if (!text) {
+    return false;
+  }
+  return isInternalAutomationPromptText(text);
+}
 
 // Persistent instances keyed by session
 const inputHistories = new Map<string, InputHistory>();
@@ -1450,6 +1499,10 @@ function buildChatItems(props: ChatProps): Array<ChatItem | MessageGroup> {
     }
 
     if (!props.showToolCalls && normalized.role.toLowerCase() === "toolresult") {
+      continue;
+    }
+
+    if (props.hideInternalPrompts && isInternalAutomationPromptMessage(msg)) {
       continue;
     }
 

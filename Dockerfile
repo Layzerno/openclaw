@@ -199,6 +199,22 @@ RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,shar
       chown -R node:node /home/node/.cache/ms-playwright; \
     fi
 
+ARG OPENCLAW_INSTALL_GOOGLE_CHROME=""
+RUN --mount=type=cache,id=openclaw-bookworm-apt-cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,id=openclaw-bookworm-apt-lists,target=/var/lib/apt,sharing=locked \
+    if [ -n "$OPENCLAW_INSTALL_GOOGLE_CHROME" ]; then \
+      if [ "$(dpkg --print-architecture)" != "amd64" ]; then \
+        echo "ERROR: OPENCLAW_INSTALL_GOOGLE_CHROME only supports amd64 (got $(dpkg --print-architecture))" >&2; \
+        exit 1; \
+      fi && \
+      apt-get update && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends wget ca-certificates && \
+      wget -q "https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb" -O /tmp/chrome.deb && \
+      DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/chrome.deb || \
+        (DEBIAN_FRONTEND=noninteractive apt-get -f install -y && DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/chrome.deb) && \
+      rm -f /tmp/chrome.deb; \
+    fi
+
 # Optionally install Docker CLI for sandbox container management.
 # Build with: docker build --build-arg OPENCLAW_INSTALL_DOCKER_CLI=1 ...
 # Adds ~50MB. Only the CLI is installed — no Docker daemon.
