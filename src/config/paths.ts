@@ -17,11 +17,11 @@ export function resolveIsNixMode(env: NodeJS.ProcessEnv = process.env): boolean 
 
 export const isNixMode = resolveIsNixMode();
 
-// Support historical (and occasionally misspelled) legacy state dirs.
-const LEGACY_STATE_DIRNAMES = [".clawdbot", ".moldbot"] as const;
+// Support the remaining legacy pre-rebrand state dir.
+const LEGACY_STATE_DIRNAMES = [".clawdbot"] as const;
 const NEW_STATE_DIRNAME = ".openclaw";
 const CONFIG_FILENAME = "openclaw.json";
-const LEGACY_CONFIG_FILENAMES = ["clawdbot.json", "moldbot.json"] as const;
+const LEGACY_CONFIG_FILENAMES = ["clawdbot.json"] as const;
 
 function resolveDefaultHomeDir(): string {
   return resolveRequiredHomeDir(process.env, os.homedir);
@@ -94,6 +94,46 @@ function resolveUserPath(
   homedir: () => string = envHomedir(env),
 ): string {
   return resolveHomeRelativePath(input, { env, homedir });
+}
+
+/**
+ * Optional allowlist of directories that `$include` directives may resolve
+ * outside the config directory. Set via `OPENCLAW_INCLUDE_ROOTS` as a
+ * platform-delimited path list (`:` on POSIX, `;` on Windows).
+ *
+ * Each entry is tilde-expanded and resolved to an absolute path. Entries that
+ * cannot be resolved or that are not absolute after expansion are dropped.
+ *
+ * Returns an empty array when the var is unset or contains no usable entries,
+ * preserving the historical behavior where `$include` is confined to the
+ * directory containing `openclaw.json`.
+ */
+export function resolveIncludeRoots(
+  env: NodeJS.ProcessEnv = process.env,
+  homedir: () => string = envHomedir(env),
+): string[] {
+  const raw = env.OPENCLAW_INCLUDE_ROOTS?.trim();
+  if (!raw) {
+    return [];
+  }
+  const effectiveHomedir = () => resolveRequiredHomeDir(env, homedir);
+  const seen = new Set<string>();
+  const roots: string[] = [];
+  for (const entry of raw.split(path.delimiter)) {
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const resolved = path.resolve(
+      resolveHomeRelativePath(trimmed, { env, homedir: effectiveHomedir }),
+    );
+    if (!path.isAbsolute(resolved) || seen.has(resolved)) {
+      continue;
+    }
+    seen.add(resolved);
+    roots.push(resolved);
+  }
+  return roots;
 }
 
 export const STATE_DIR = resolveStateDir();
@@ -251,16 +291,45 @@ export function resolveOAuthPath(
   return path.join(resolveOAuthDir(env, stateDir), OAUTH_FILENAME);
 }
 
+function parseGatewayPortEnvValue(raw: string | undefined): number | null {
+  const trimmed = raw?.trim();
+  if (!trimmed) {
+    return null;
+  }
+  if (/^\d+$/.test(trimmed)) {
+    const parsed = Number.parseInt(trimmed, 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  // Docker Compose publish strings can leak into host CLI env loading via repo `.env`,
+  // for example `127.0.0.1:18789` or `[::1]:18789`. Accept only explicit host:port forms.
+  const bracketedIpv6Match = trimmed.match(/^\[[^\]]+\]:(\d+)$/);
+  if (bracketedIpv6Match?.[1]) {
+    const parsed = Number.parseInt(bracketedIpv6Match[1], 10);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  }
+
+  const firstColon = trimmed.indexOf(":");
+  const lastColon = trimmed.lastIndexOf(":");
+  if (firstColon <= 0 || firstColon !== lastColon) {
+    return null;
+  }
+  const suffix = trimmed.slice(firstColon + 1);
+  if (!/^\d+$/.test(suffix)) {
+    return null;
+  }
+  const parsed = Number.parseInt(suffix, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
 export function resolveGatewayPort(
   cfg?: OpenClawConfig,
   env: NodeJS.ProcessEnv = process.env,
 ): number {
   const envRaw = env.OPENCLAW_GATEWAY_PORT?.trim();
-  if (envRaw) {
-    const parsed = Number.parseInt(envRaw, 10);
-    if (Number.isFinite(parsed) && parsed > 0) {
-      return parsed;
-    }
+  const envPort = parseGatewayPortEnvValue(envRaw);
+  if (envPort !== null) {
+    return envPort;
   }
   const configPort = cfg?.gateway?.port;
   if (typeof configPort === "number" && Number.isFinite(configPort)) {

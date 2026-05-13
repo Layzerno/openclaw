@@ -4,7 +4,7 @@ export function buildForwardCompatTemplate(params: {
   id: string;
   name: string;
   provider: string;
-  api: "anthropic-messages" | "openai-completions" | "openai-responses";
+  api: "anthropic-messages" | "google-gemini-cli" | "openai-completions" | "openai-responses";
   baseUrl: string;
   reasoning?: boolean;
   input?: readonly ["text"] | readonly ["text", "image"];
@@ -34,14 +34,22 @@ export function expectResolvedForwardCompatFallbackResult(params: {
   expectedModel: Record<string, unknown>;
 }) {
   expect(params.result.error).toBeUndefined();
-  expect(params.result.model).toMatchObject(params.expectedModel);
+  expectModelFields(params.result.model, params.expectedModel);
 }
 
 export function expectResolvedForwardCompatFallbackWithRegistryResult(params: {
   result: unknown;
   expectedModel: Record<string, unknown>;
 }) {
-  expect(params.result).toMatchObject(params.expectedModel);
+  expectModelFields(params.result, params.expectedModel);
+}
+
+function expectModelFields(actual: unknown, expected: Record<string, unknown>) {
+  const actualModel = actual as Record<string, unknown> | undefined;
+  expect(actualModel).toBeDefined();
+  for (const [key, value] of Object.entries(expected)) {
+    expect(actualModel?.[key]).toEqual(value);
+  }
 }
 
 export function expectUnknownModelErrorResult(

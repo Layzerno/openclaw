@@ -1,7 +1,7 @@
+import { createStartAccountContext } from "openclaw/plugin-sdk/channel-test-helpers";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { createStartAccountContext } from "../../../test/helpers/extensions/start-account-context.js";
 import type { PluginRuntime } from "../runtime-api.js";
-import { nostrPlugin } from "./channel.js";
+import { startNostrGatewayAccount } from "./gateway.js";
 import { setNostrRuntime } from "./runtime.js";
 import { buildResolvedNostrAccount } from "./test-fixtures.js";
 
@@ -17,10 +17,23 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("./nostr-bus.js", () => ({
   DEFAULT_RELAYS: ["wss://relay.example.com"],
-  getPublicKeyFromPrivate: vi.fn(() => "bot-pubkey"),
-  normalizePubkey: mocks.normalizePubkey,
   startNostrBus: mocks.startNostrBus,
 }));
+
+vi.mock("./nostr-key-utils.js", () => ({
+  getPublicKeyFromPrivate: vi.fn(() => "bot-pubkey"),
+  normalizePubkey: mocks.normalizePubkey,
+}));
+
+function createMockBus() {
+  return {
+    sendDm: vi.fn(async () => {}),
+    close: vi.fn(),
+    getMetrics: vi.fn(() => ({ counters: {} })),
+    publishProfile: vi.fn(),
+    getProfileState: vi.fn(async () => null),
+  };
+}
 
 function createRuntimeHarness() {
   const recordInboundSession = vi.fn(async () => {});
@@ -69,6 +82,33 @@ function createRuntimeHarness() {
   };
 }
 
+async function startGatewayHarness(params: {
+  account: ReturnType<typeof buildResolvedNostrAccount>;
+  cfg?: Parameters<typeof createStartAccountContext>[0]["cfg"];
+}) {
+  const harness = createRuntimeHarness();
+  const bus = createMockBus();
+  setNostrRuntime(harness.runtime);
+  mocks.startNostrBus.mockResolvedValueOnce(bus as never);
+
+  const cleanup = (await startNostrGatewayAccount(
+    createStartAccountContext({
+      account: params.account,
+      cfg: params.cfg,
+    }),
+  )) as { stop: () => void };
+
+  return { harness, bus, cleanup };
+}
+
+function mockCallArg(mock: ReturnType<typeof vi.fn>, callIndex = 0, argIndex = 0): unknown {
+  const call = mock.mock.calls.at(callIndex);
+  if (!call) {
+    throw new Error(`Expected mock call ${callIndex}`);
+  }
+  return call.at(argIndex);
+}
+
 describe("nostr inbound gateway path", () => {
   afterEach(() => {
     mocks.normalizePubkey.mockClear();
@@ -76,27 +116,13 @@ describe("nostr inbound gateway path", () => {
   });
 
   it("issues a pairing reply before decrypt for unknown senders", async () => {
-    const harness = createRuntimeHarness();
-    setNostrRuntime(harness.runtime);
-
-    const bus = {
-      sendDm: vi.fn(async () => {}),
-      close: vi.fn(),
-      getMetrics: vi.fn(() => ({ counters: {} })),
-      publishProfile: vi.fn(),
-      getProfileState: vi.fn(async () => null),
-    };
-    mocks.startNostrBus.mockResolvedValueOnce(bus as never);
-
-    const cleanup = (await nostrPlugin.gateway!.startAccount!(
-      createStartAccountContext({
-        account: buildResolvedNostrAccount({
-          config: { dmPolicy: "pairing", allowFrom: [] },
-        }),
+    const { cleanup } = await startGatewayHarness({
+      account: buildResolvedNostrAccount({
+        config: { dmPolicy: "pairing", allowFrom: [] },
       }),
-    )) as { stop: () => void };
+    });
 
-    const options = mocks.startNostrBus.mock.calls[0]?.[0] as {
+    const options = mockCallArg(mocks.startNostrBus) as {
       authorizeSender: (params: {
         senderPubkey: string;
         reply: (text: string) => Promise<void>;
@@ -111,38 +137,24 @@ describe("nostr inbound gateway path", () => {
       }),
     ).resolves.toBe("pairing");
     expect(sendPairingReply).toHaveBeenCalledTimes(1);
-    expect(sendPairingReply.mock.calls[0]?.[0]).toContain("Pairing code:");
+    expect(mockCallArg(sendPairingReply)).toContain("Pairing code:");
 
     cleanup.stop();
   });
 
   it("routes allowed DMs through the standard reply pipeline", async () => {
-    const harness = createRuntimeHarness();
-    setNostrRuntime(harness.runtime);
-
-    const bus = {
-      sendDm: vi.fn(async () => {}),
-      close: vi.fn(),
-      getMetrics: vi.fn(() => ({ counters: {} })),
-      publishProfile: vi.fn(),
-      getProfileState: vi.fn(async () => null),
-    };
-    mocks.startNostrBus.mockResolvedValueOnce(bus as never);
-
-    const cleanup = (await nostrPlugin.gateway!.startAccount!(
-      createStartAccountContext({
-        account: buildResolvedNostrAccount({
-          publicKey: "bot-pubkey",
-          config: { dmPolicy: "allowlist", allowFrom: ["nostr:sender-pubkey"] },
-        }),
-        cfg: {
-          session: { store: { type: "jsonl" } },
-          commands: { useAccessGroups: true },
-        } as never,
+    const { harness, cleanup } = await startGatewayHarness({
+      account: buildResolvedNostrAccount({
+        publicKey: "bot-pubkey",
+        config: { dmPolicy: "allowlist", allowFrom: ["nostr:sender-pubkey"] },
       }),
-    )) as { stop: () => void };
+      cfg: {
+        session: { store: { type: "jsonl" } },
+        commands: { useAccessGroups: true },
+      } as never,
+    });
 
-    const options = mocks.startNostrBus.mock.calls[0]?.[0] as {
+    const options = mockCallArg(mocks.startNostrBus) as {
       onMessage: (
         senderPubkey: string,
         text: string,
@@ -159,12 +171,15 @@ describe("nostr inbound gateway path", () => {
 
     expect(harness.recordInboundSession).toHaveBeenCalledTimes(1);
     expect(harness.dispatchReplyWithBufferedBlockDispatcher).toHaveBeenCalledTimes(1);
-    expect(harness.dispatchReplyWithBufferedBlockDispatcher.mock.calls[0]?.[0]?.ctx).toMatchObject({
-      BodyForAgent: "hello from nostr",
-      SenderId: "sender-pubkey",
-      MessageSid: "event-123",
-      CommandAuthorized: true,
-    });
+    const ctx = (
+      mockCallArg(harness.dispatchReplyWithBufferedBlockDispatcher) as {
+        ctx?: Record<string, unknown>;
+      }
+    ).ctx;
+    expect(ctx?.BodyForAgent).toBe("hello from nostr");
+    expect(ctx?.SenderId).toBe("sender-pubkey");
+    expect(ctx?.MessageSid).toBe("event-123");
+    expect(ctx?.CommandAuthorized).toBe(true);
     expect(sendReply).toHaveBeenCalledWith("converted:|a|b|");
 
     cleanup.stop();

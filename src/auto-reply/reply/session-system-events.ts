@@ -1,12 +1,31 @@
 import { resolveUserTimezone } from "../../agents/date-time.js";
-import type { OpenClawConfig } from "../../config/config.js";
+import type { OpenClawConfig } from "../../config/types.openclaw.js";
 import { buildChannelSummary } from "../../infra/channel-summary.js";
 import {
   formatUtcTimestamp,
   formatZonedTimestamp,
   resolveTimezone,
 } from "../../infra/format-time/format-datetime.ts";
-import { drainSystemEventEntries } from "../../infra/system-events.js";
+import { isExecCompletionEvent } from "../../infra/heartbeat-events-filter.js";
+import {
+  consumeSelectedSystemEventEntries,
+  peekSystemEventEntries,
+  type SystemEvent,
+} from "../../infra/system-events.js";
+import {
+  normalizeLowercaseStringOrEmpty,
+  normalizeOptionalString,
+} from "../../shared/string-coerce.js";
+
+const selectGenericSystemEvents = (events: readonly SystemEvent[]): SystemEvent[] => {
+  const selected: SystemEvent[] = [];
+  for (const event of events) {
+    if (!isExecCompletionEvent(event.text)) {
+      selected.push(event);
+    }
+  }
+  return selected;
+};
 
 /** Drain queued system events, format as `System:` lines, return the block (or undefined). */
 export async function drainFormattedSystemEvents(params: {
@@ -20,7 +39,7 @@ export async function drainFormattedSystemEvents(params: {
     if (!trimmed) {
       return null;
     }
-    const lower = trimmed.toLowerCase();
+    const lower = normalizeLowercaseStringOrEmpty(trimmed);
     if (lower.includes("reason periodic")) {
       return null;
     }
@@ -39,11 +58,11 @@ export async function drainFormattedSystemEvents(params: {
   };
 
   const resolveSystemEventTimezone = (cfg: OpenClawConfig) => {
-    const raw = cfg.agents?.defaults?.envelopeTimezone?.trim();
+    const raw = normalizeOptionalString(cfg.agents?.defaults?.envelopeTimezone);
     if (!raw) {
       return { mode: "local" as const };
     }
-    const lowered = raw.toLowerCase();
+    const lowered = normalizeLowercaseStringOrEmpty(raw);
     if (lowered === "utc" || lowered === "gmt") {
       return { mode: "utc" as const };
     }
@@ -78,35 +97,44 @@ export async function drainFormattedSystemEvents(params: {
     );
   };
 
+  const summaryLines: string[] = [];
   const systemLines: string[] = [];
-  const queued = drainSystemEventEntries(params.sessionKey);
-  systemLines.push(
-    ...queued
-      .map((event) => {
-        const compacted = compactSystemEvent(event.text);
-        if (!compacted) {
-          return null;
-        }
-        return `[${formatSystemEventTimestamp(event.ts, params.cfg)}] ${compacted}`;
-      })
-      .filter((v): v is string => Boolean(v)),
+  // Exec completions have a dedicated heartbeat prompt; leave those entries queued
+  // so the heartbeat path can consume and deliver them.
+  const queued = consumeSelectedSystemEventEntries(
+    params.sessionKey,
+    selectGenericSystemEvents(peekSystemEventEntries(params.sessionKey)),
   );
+  for (const event of queued) {
+    const compacted = compactSystemEvent(event.text);
+    if (!compacted) {
+      continue;
+    }
+    const prefix = event.trusted === false ? "System (untrusted)" : "System";
+    const timestamp = `[${formatSystemEventTimestamp(event.ts, params.cfg)}]`;
+    let index = 0;
+    for (const subline of compacted.split("\n")) {
+      systemLines.push(`${prefix}: ${index === 0 ? `${timestamp} ` : ""}${subline}`);
+      index += 1;
+    }
+  }
   if (params.isMainSession && params.isNewSession) {
     const summary = await buildChannelSummary(params.cfg);
     if (summary.length > 0) {
-      systemLines.unshift(...summary);
+      for (const line of summary) {
+        for (const subline of line.split("\n")) {
+          summaryLines.push(`System: ${subline}`);
+        }
+      }
     }
   }
-  if (systemLines.length === 0) {
+  if (summaryLines.length === 0 && systemLines.length === 0) {
     return undefined;
   }
 
-  // Format events as trusted System: lines for the message timeline.
-  // Inbound sanitization rewrites any user-supplied "System:" to "System (untrusted):",
-  // so these gateway-originated lines are distinguishable by the model.
-  // Each sub-line of a multi-line event gets its own System: prefix so continuation
-  // lines can't be mistaken for user content.
-  return systemLines
-    .flatMap((line) => line.split("\n").map((subline) => `System: ${subline}`))
-    .join("\n");
+  // Each sub-line gets its own prefix so continuation lines can't be mistaken
+  // for regular user content.
+  return summaryLines.length > 0
+    ? [...summaryLines, ...systemLines].join("\n")
+    : systemLines.join("\n");
 }

@@ -1,11 +1,17 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { OpenClawConfig } from "../config/config.js";
-import { readConfigFileSnapshot } from "../config/config.js";
+import {
+  readConfigFileSnapshot,
+  recoverConfigFromJsonRootSuffix,
+  recoverConfigFromLastKnownGood,
+} from "../config/io.js";
 import { formatConfigIssueLines } from "../config/issue-format.js";
+import type { LegacyConfigIssue } from "../config/types.js";
+import type { OpenClawConfig } from "../config/types.openclaw.js";
 import { note } from "../terminal/note.js";
 import { resolveHomeDir } from "../utils.js";
 import { noteIncludeConfinementWarning } from "./doctor-config-analysis.js";
+import { findDoctorLegacyConfigIssues } from "./doctor/shared/legacy-config-issues.js";
 
 async function maybeMigrateLegacyConfig(): Promise<string[]> {
   const changes: string[] = [];
@@ -23,10 +29,7 @@ async function maybeMigrateLegacyConfig(): Promise<string[]> {
     // missing config
   }
 
-  const legacyCandidates = [
-    path.join(home, ".clawdbot", "clawdbot.json"),
-    path.join(home, ".moldbot", "moldbot.json"),
-  ];
+  const legacyCandidates = [path.join(home, ".clawdbot", "clawdbot.json")];
 
   let legacyPath: string | null = null;
   for (const candidate of legacyCandidates) {
@@ -58,10 +61,32 @@ export type DoctorConfigPreflightResult = {
   baseConfig: OpenClawConfig;
 };
 
+function collectDoctorLegacyIssues(
+  snapshot: Awaited<ReturnType<typeof readConfigFileSnapshot>>,
+): LegacyConfigIssue[] {
+  if (!snapshot.exists) {
+    return [];
+  }
+  const resolvedRaw = snapshot.sourceConfig ?? snapshot.config ?? {};
+  const sourceRaw = snapshot.parsed ?? resolvedRaw;
+  return findDoctorLegacyConfigIssues(resolvedRaw, sourceRaw);
+}
+
+function addDoctorLegacyIssues(
+  snapshot: Awaited<ReturnType<typeof readConfigFileSnapshot>>,
+): Awaited<ReturnType<typeof readConfigFileSnapshot>> {
+  const legacyIssues = collectDoctorLegacyIssues(snapshot);
+  if (legacyIssues.length === 0) {
+    return snapshot;
+  }
+  return { ...snapshot, legacyIssues };
+}
+
 export async function runDoctorConfigPreflight(
   options: {
     migrateState?: boolean;
     migrateLegacyConfig?: boolean;
+    repairPrefixedConfig?: boolean;
     invalidConfigNote?: string | false;
   } = {},
 ): Promise<DoctorConfigPreflightResult> {
@@ -83,7 +108,21 @@ export async function runDoctorConfigPreflight(
     }
   }
 
-  const snapshot = await readConfigFileSnapshot();
+  let snapshot = addDoctorLegacyIssues(await readConfigFileSnapshot());
+  if (options.repairPrefixedConfig === true && snapshot.exists && !snapshot.valid) {
+    if (await recoverConfigFromJsonRootSuffix(snapshot)) {
+      note("Removed non-JSON prefix from openclaw.json; original saved as .clobbered.*.", "Config");
+      snapshot = addDoctorLegacyIssues(await readConfigFileSnapshot());
+    } else if (
+      await recoverConfigFromLastKnownGood({ snapshot, reason: "doctor-invalid-config" })
+    ) {
+      note(
+        "Restored openclaw.json from last-known-good; original saved as .clobbered.*.",
+        "Config",
+      );
+      snapshot = addDoctorLegacyIssues(await readConfigFileSnapshot());
+    }
+  }
   const invalidConfigNote =
     options.invalidConfigNote ?? "Config invalid; doctor will run with best-effort config.";
   if (
@@ -103,6 +142,6 @@ export async function runDoctorConfigPreflight(
 
   return {
     snapshot,
-    baseConfig: snapshot.config ?? {},
+    baseConfig: snapshot.sourceConfig ?? snapshot.config ?? {},
   };
 }

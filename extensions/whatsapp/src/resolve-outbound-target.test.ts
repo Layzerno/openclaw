@@ -21,6 +21,15 @@ function expectResolutionError(params: ResolveParams) {
   expect(result.error.message).toContain("WhatsApp");
 }
 
+function expectResolutionErrorMessage(params: ResolveParams, expectedMessage: string) {
+  const result = resolveWhatsAppOutboundTarget(params);
+  expect(result.ok).toBe(false);
+  if (result.ok) {
+    throw new Error("expected resolution to fail");
+  }
+  expect(result.error.message).toBe(expectedMessage);
+}
+
 function expectResolutionOk(params: ResolveParams, expectedTarget: string) {
   const result = resolveWhatsAppOutboundTarget(params);
   expect(result).toEqual({ ok: true, to: expectedTarget });
@@ -121,6 +130,29 @@ describe("resolveWhatsAppOutboundTarget", () => {
     });
   });
 
+  describe("newsletter JID handling", () => {
+    it("returns success for valid newsletter JID without applying DM allowFrom", () => {
+      vi.mocked(normalize.normalizeWhatsAppTarget).mockReturnValueOnce(
+        "120363123456789@newsletter",
+      );
+      vi.mocked(normalize.isWhatsAppGroupJid).mockReturnValueOnce(false);
+      vi.mocked(normalize.isWhatsAppNewsletterJid).mockReturnValueOnce(true);
+
+      expectResolutionOk(
+        {
+          to: "120363123456789@newsletter",
+          allowFrom: [SECONDARY_TARGET],
+          mode: "implicit",
+        },
+        "120363123456789@newsletter",
+      );
+      expect(vi.mocked(normalize.normalizeWhatsAppTarget)).toHaveBeenCalledOnce();
+      expect(vi.mocked(normalize.normalizeWhatsAppTarget)).toHaveBeenCalledWith(
+        "120363123456789@newsletter",
+      );
+    });
+  });
+
   describe("implicit/heartbeat mode with allowList", () => {
     it("allows message when wildcard is present", () => {
       mockNormalizedDirectMessage(PRIMARY_TARGET, PRIMARY_TARGET);
@@ -139,7 +171,30 @@ describe("resolveWhatsAppOutboundTarget", () => {
 
     it("denies message when target is not in allowList", () => {
       mockNormalizedDirectMessage(PRIMARY_TARGET, SECONDARY_TARGET);
-      expectDeniedForTarget({ allowFrom: [SECONDARY_TARGET], mode: "implicit" });
+      expectResolutionErrorMessage(
+        {
+          to: PRIMARY_TARGET,
+          allowFrom: [SECONDARY_TARGET],
+          mode: "implicit",
+        },
+        `Target "${PRIMARY_TARGET}" is not listed in the configured WhatsApp allowFrom policy.`,
+      );
+    });
+
+    it("uses the normalized target in the allowFrom error message", () => {
+      vi.mocked(normalize.normalizeWhatsAppTarget)
+        .mockReturnValueOnce(PRIMARY_TARGET)
+        .mockReturnValueOnce(SECONDARY_TARGET);
+      vi.mocked(normalize.isWhatsAppGroupJid).mockReturnValueOnce(false);
+
+      expectResolutionErrorMessage(
+        {
+          to: "(123) 456-7890",
+          allowFrom: [SECONDARY_TARGET],
+          mode: "implicit",
+        },
+        `Target "${PRIMARY_TARGET}" is not listed in the configured WhatsApp allowFrom policy.`,
+      );
     });
 
     it("handles mixed numeric and string allowList entries", () => {
@@ -157,8 +212,8 @@ describe("resolveWhatsAppOutboundTarget", () => {
 
     it("filters out invalid normalized entries from allowList", () => {
       vi.mocked(normalize.normalizeWhatsAppTarget)
-        .mockReturnValueOnce(null)
         .mockReturnValueOnce("+11234567890")
+        .mockReturnValueOnce(null)
         .mockReturnValueOnce("+11234567890");
       vi.mocked(normalize.isWhatsAppGroupJid).mockReturnValueOnce(false);
 
