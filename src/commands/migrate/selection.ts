@@ -1,6 +1,10 @@
 import path from "node:path";
+import { isRecord } from "@openclaw/normalization-core/record-coerce";
+import { normalizeOptionalString } from "@openclaw/normalization-core/string-coerce";
+import { uniqueStrings } from "@openclaw/normalization-core/string-normalization";
 import { markMigrationItemSkipped, summarizeMigrationItems } from "../../plugin-sdk/migration.js";
 import type { MigrationItem, MigrationPlan } from "../../plugins/types.js";
+import { MIGRATION_CONFLICT_REASON_PHRASES } from "./output.js";
 
 export const MIGRATION_SKILL_NOT_SELECTED_REASON = "not selected for migration";
 export const MIGRATION_PLUGIN_NOT_SELECTED_REASON = "not selected for migration";
@@ -20,32 +24,23 @@ function normalizeSelectionRef(value: string): string {
 }
 
 function readMigrationSkillName(item: MigrationItem): string | undefined {
-  const value = item.details?.skillName;
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  return normalizeOptionalString(item.details?.skillName);
 }
 
 function readMigrationSkillSourceLabel(item: MigrationItem): string | undefined {
-  const value = item.details?.sourceLabel;
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  return normalizeOptionalString(item.details?.sourceLabel);
 }
 
 function readMigrationPluginName(item: MigrationItem): string | undefined {
-  const value = item.details?.pluginName;
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  return normalizeOptionalString(item.details?.pluginName);
 }
 
 function readMigrationPluginConfigKey(item: MigrationItem): string | undefined {
-  const value = item.details?.configKey;
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
+  return normalizeOptionalString(item.details?.configKey);
 }
 
 function readMigrationPluginMarketplaceName(item: MigrationItem): string | undefined {
-  const value = item.details?.marketplaceName;
-  return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
+  return normalizeOptionalString(item.details?.marketplaceName);
 }
 
 function migrationSkillRefs(item: MigrationItem): string[] {
@@ -76,12 +71,13 @@ function formatSelectionRefList(values: readonly string[]): string {
   return values.map((value) => `"${value}"`).join(", ");
 }
 
-function buildSkillSelectionIndex(
+function buildSelectionIndex(
   items: readonly MigrationItem[],
+  refsForItem: (item: MigrationItem) => readonly string[],
 ): Map<string, ReadonlySet<string>> {
   const index = new Map<string, Set<string>>();
   for (const item of items) {
-    for (const ref of migrationSkillRefs(item)) {
+    for (const ref of refsForItem(item)) {
       const normalized = normalizeSelectionRef(ref);
       if (!normalized) {
         continue;
@@ -94,114 +90,87 @@ function buildSkillSelectionIndex(
   return index;
 }
 
-function buildPluginSelectionIndex(
-  items: readonly MigrationItem[],
-): Map<string, ReadonlySet<string>> {
-  const index = new Map<string, Set<string>>();
-  for (const item of items) {
-    for (const ref of migrationPluginRefs(item)) {
-      const normalized = normalizeSelectionRef(ref);
-      if (!normalized) {
-        continue;
-      }
-      const existing = index.get(normalized) ?? new Set<string>();
-      existing.add(item.id);
-      index.set(normalized, existing);
+function resolveSelectedMigrationItemIds(params: {
+  items: readonly MigrationItem[];
+  selectedRefs: readonly string[];
+  refsForItem: (item: MigrationItem) => readonly string[];
+  formatSelectionLabel: (item: MigrationItem) => string;
+  kindLabel: "skill" | "plugin";
+  availableLabel: "skills" | "plugins";
+}): Set<string> {
+  const index = buildSelectionIndex(params.items, params.refsForItem);
+  const selectedIds = new Set<string>();
+  const unknownRefs: string[] = [];
+  const ambiguousRefs: string[] = [];
+  for (const ref of params.selectedRefs) {
+    const normalized = normalizeSelectionRef(ref);
+    if (!normalized) {
+      continue;
+    }
+    const matches = index.get(normalized);
+    if (!matches) {
+      unknownRefs.push(ref);
+      continue;
+    }
+    if (matches.size > 1) {
+      ambiguousRefs.push(ref);
+      continue;
+    }
+    const [id] = matches;
+    if (id) {
+      selectedIds.add(id);
     }
   }
-  return index;
+
+  if (unknownRefs.length > 0 || ambiguousRefs.length > 0) {
+    const available = params.items
+      .map(params.formatSelectionLabel)
+      .toSorted((a, b) => a.localeCompare(b));
+    const titleKind = params.kindLabel[0].toUpperCase() + params.kindLabel.slice(1);
+    const parts: string[] = [];
+    if (unknownRefs.length > 0) {
+      parts.push(
+        `No migratable ${params.kindLabel} matched ${formatSelectionRefList(unknownRefs)}.`,
+      );
+    }
+    if (ambiguousRefs.length > 0) {
+      parts.push(`${titleKind} selection ${formatSelectionRefList(ambiguousRefs)} was ambiguous.`);
+    }
+    parts.push(
+      `Available ${params.availableLabel}: ${available.length > 0 ? available.join(", ") : "none"}.`,
+    );
+    throw new Error(parts.join(" "));
+  }
+
+  return selectedIds;
 }
 
 function resolveSelectedSkillItemIds(
   items: readonly MigrationItem[],
   selectedRefs: readonly string[],
 ): Set<string> {
-  const index = buildSkillSelectionIndex(items);
-  const selectedIds = new Set<string>();
-  const unknownRefs: string[] = [];
-  const ambiguousRefs: string[] = [];
-  for (const ref of selectedRefs) {
-    const normalized = normalizeSelectionRef(ref);
-    if (!normalized) {
-      continue;
-    }
-    const matches = index.get(normalized);
-    if (!matches) {
-      unknownRefs.push(ref);
-      continue;
-    }
-    if (matches.size > 1) {
-      ambiguousRefs.push(ref);
-      continue;
-    }
-    const [id] = matches;
-    if (id) {
-      selectedIds.add(id);
-    }
-  }
-
-  if (unknownRefs.length > 0 || ambiguousRefs.length > 0) {
-    const available = items
-      .map(formatMigrationSkillSelectionLabel)
-      .toSorted((a, b) => a.localeCompare(b));
-    const parts: string[] = [];
-    if (unknownRefs.length > 0) {
-      parts.push(`No migratable skill matched ${formatSelectionRefList(unknownRefs)}.`);
-    }
-    if (ambiguousRefs.length > 0) {
-      parts.push(`Skill selection ${formatSelectionRefList(ambiguousRefs)} was ambiguous.`);
-    }
-    parts.push(`Available skills: ${available.length > 0 ? available.join(", ") : "none"}.`);
-    throw new Error(parts.join(" "));
-  }
-
-  return selectedIds;
+  return resolveSelectedMigrationItemIds({
+    items,
+    selectedRefs,
+    refsForItem: migrationSkillRefs,
+    formatSelectionLabel: formatMigrationSkillSelectionLabel,
+    kindLabel: "skill",
+    availableLabel: "skills",
+  });
 }
 
 function resolveSelectedPluginItemIds(
   items: readonly MigrationItem[],
   selectedRefs: readonly string[],
 ): Set<string> {
-  const index = buildPluginSelectionIndex(items);
-  const selectedIds = new Set<string>();
-  const unknownRefs: string[] = [];
-  const ambiguousRefs: string[] = [];
-  for (const ref of selectedRefs) {
-    const normalized = normalizeSelectionRef(ref);
-    if (!normalized) {
-      continue;
-    }
-    const matches = index.get(normalized);
-    if (!matches) {
-      unknownRefs.push(ref);
-      continue;
-    }
-    if (matches.size > 1) {
-      ambiguousRefs.push(ref);
-      continue;
-    }
-    const [id] = matches;
-    if (id) {
-      selectedIds.add(id);
-    }
-  }
-
-  if (unknownRefs.length > 0 || ambiguousRefs.length > 0) {
-    const available = items
-      .map(formatMigrationPluginSelectionLabel)
-      .toSorted((a, b) => a.localeCompare(b));
-    const parts: string[] = [];
-    if (unknownRefs.length > 0) {
-      parts.push(`No migratable plugin matched ${formatSelectionRefList(unknownRefs)}.`);
-    }
-    if (ambiguousRefs.length > 0) {
-      parts.push(`Plugin selection ${formatSelectionRefList(ambiguousRefs)} was ambiguous.`);
-    }
-    parts.push(`Available plugins: ${available.length > 0 ? available.join(", ") : "none"}.`);
-    throw new Error(parts.join(" "));
-  }
-
-  return selectedIds;
+  return resolveSelectedMigrationItemIds({
+    items,
+    selectedRefs,
+    refsForItem: migrationPluginRefs,
+    formatSelectionLabel: formatMigrationPluginSelectionLabel,
+    kindLabel: "plugin",
+    availableLabel: "plugins",
+  });
 }
 
 export function getSelectableMigrationSkillItems(plan: MigrationPlan): MigrationItem[] {
@@ -253,33 +222,29 @@ export function formatMigrationSkillSelectionLabel(item: MigrationItem): string 
   return readMigrationSkillName(item) ?? item.id.replace(/^skill:/u, "");
 }
 
-export function formatMigrationSkillSelectionHint(item: MigrationItem): string | undefined {
-  const parts = [readMigrationSkillSourceLabel(item)];
-  if (item.status === "conflict") {
-    parts.push(item.reason ? `conflict: ${item.reason}` : "conflict");
+function humanizeMigrationConflictReason(reason: string | undefined): string {
+  if (!reason) {
+    return "conflict";
   }
-  return (
-    parts
-      .filter((value): value is string => typeof value === "string" && value.length > 0)
-      .join("; ") || undefined
-  );
+  return MIGRATION_CONFLICT_REASON_PHRASES[reason] ?? reason;
+}
+
+export function formatMigrationSkillSelectionHint(item: MigrationItem): string | undefined {
+  if (item.status !== "conflict") {
+    return undefined;
+  }
+  const sourceLabel = readMigrationSkillSourceLabel(item);
+  const reason = humanizeMigrationConflictReason(item.reason);
+  return sourceLabel ? `${sourceLabel} ${reason}` : reason;
 }
 
 export function formatMigrationPluginSelectionHint(item: MigrationItem): string | undefined {
-  const pluginName = readMigrationPluginName(item);
-  const configKey = readMigrationPluginConfigKey(item);
-  const parts = [
-    readMigrationPluginMarketplaceName(item),
-    configKey && configKey !== pluginName ? `config: ${configKey}` : undefined,
-  ];
-  if (item.status === "conflict") {
-    parts.push(item.reason ? `conflict: ${item.reason}` : "conflict");
+  if (item.status !== "conflict") {
+    return undefined;
   }
-  return (
-    parts
-      .filter((value): value is string => typeof value === "string" && value.length > 0)
-      .join("; ") || undefined
-  );
+  const marketplace = readMigrationPluginMarketplaceName(item);
+  const reason = humanizeMigrationConflictReason(item.reason);
+  return marketplace ? `${marketplace} plugin ${reason}` : reason;
 }
 
 export function applyMigrationSelectedSkillItemIds(
@@ -436,6 +401,29 @@ function resolveInteractiveMigrationSelection(
   };
 }
 
+function isMigrationSelectionToggleValue(value: string): boolean {
+  return (
+    value === MIGRATION_SELECTION_TOGGLE_ALL_ON || value === MIGRATION_SELECTION_TOGGLE_ALL_OFF
+  );
+}
+
+function selectedMigrationItemValues(selectedValues: readonly string[]): string[] {
+  return selectedValues.filter((value) => !isMigrationSelectionToggleValue(value));
+}
+
+function resolveMigrationSelectionBulkToggleValues(
+  activatedValue: string | undefined,
+  selectableValues: readonly string[],
+): string[] | undefined {
+  if (activatedValue === MIGRATION_SELECTION_TOGGLE_ALL_ON) {
+    return [MIGRATION_SELECTION_TOGGLE_ALL_ON, ...selectableValues];
+  }
+  if (activatedValue === MIGRATION_SELECTION_TOGGLE_ALL_OFF) {
+    return [MIGRATION_SELECTION_TOGGLE_ALL_OFF];
+  }
+  return undefined;
+}
+
 export function resolveInteractiveMigrationSkillSelection(
   items: readonly MigrationItem[],
   selectedValues: readonly string[],
@@ -463,17 +451,12 @@ export function reconcileInteractiveMigrationSkillToggleValues(
   activatedValue: string | undefined,
   selectableValues: readonly string[],
 ): string[] {
-  if (activatedValue === MIGRATION_SELECTION_TOGGLE_ALL_ON) {
-    return [MIGRATION_SELECTION_TOGGLE_ALL_ON, ...selectableValues];
-  }
-  if (activatedValue === MIGRATION_SELECTION_TOGGLE_ALL_OFF) {
-    return [MIGRATION_SELECTION_TOGGLE_ALL_OFF];
+  const bulkValues = resolveMigrationSelectionBulkToggleValues(activatedValue, selectableValues);
+  if (bulkValues !== undefined) {
+    return bulkValues;
   }
   if (activatedValue !== undefined && selectableValues.includes(activatedValue)) {
-    return selectedValues.filter(
-      (value) =>
-        value !== MIGRATION_SELECTION_TOGGLE_ALL_ON && value !== MIGRATION_SELECTION_TOGGLE_ALL_OFF,
-    );
+    return selectedMigrationItemValues(selectedValues);
   }
   return selectedValues.filter(
     (value) =>
@@ -488,21 +471,16 @@ export function reconcileInteractiveMigrationEnterValues(
   selectableValues: readonly string[],
   opts: { preserveDeselectedActivatedValue?: boolean } = {},
 ): string[] {
-  if (activatedValue === MIGRATION_SELECTION_TOGGLE_ALL_ON) {
-    return [MIGRATION_SELECTION_TOGGLE_ALL_ON, ...selectableValues];
-  }
-  if (activatedValue === MIGRATION_SELECTION_TOGGLE_ALL_OFF) {
-    return [MIGRATION_SELECTION_TOGGLE_ALL_OFF];
+  const bulkValues = resolveMigrationSelectionBulkToggleValues(activatedValue, selectableValues);
+  if (bulkValues !== undefined) {
+    return bulkValues;
   }
   if (activatedValue !== undefined && selectableValues.includes(activatedValue)) {
-    const selectedSelectableValues = selectedValues.filter(
-      (value) =>
-        value !== MIGRATION_SELECTION_TOGGLE_ALL_ON && value !== MIGRATION_SELECTION_TOGGLE_ALL_OFF,
-    );
+    const selectedSelectableValues = selectedMigrationItemValues(selectedValues);
     if (opts.preserveDeselectedActivatedValue && !selectedValues.includes(activatedValue)) {
       return selectedSelectableValues;
     }
-    return Array.from(new Set([...selectedSelectableValues, activatedValue]));
+    return uniqueStrings([...selectedSelectableValues, activatedValue]);
   }
   return [...selectedValues];
 }

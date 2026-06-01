@@ -1,20 +1,26 @@
 import type { Command } from "commander";
+import { formatDocsLink } from "../../packages/terminal-core/src/links.js";
+import { theme } from "../../packages/terminal-core/src/theme.js";
 import { defaultRuntime } from "../runtime.js";
-import { formatDocsLink } from "../terminal/links.js";
-import { theme } from "../terminal/theme.js";
 import { inheritOptionFromParent } from "./command-options.js";
 import { formatHelpExamples } from "./help-format.js";
-import {
-  type UpdateCommandOptions,
-  type UpdateStatusOptions,
-  type UpdateWizardOptions,
+import type {
+  UpdateCommandOptions,
+  UpdateFinalizeOptions,
+  UpdateStatusOptions,
+  UpdateWizardOptions,
 } from "./update-cli/shared.js";
 import { updateStatusCommand } from "./update-cli/status.js";
-import { updateCommand } from "./update-cli/update-command.js";
+import { updateCommand, updateFinalizeCommand } from "./update-cli/update-command.js";
 import { updateWizardCommand } from "./update-cli/wizard.js";
 
-export { updateCommand, updateStatusCommand, updateWizardCommand };
-export type { UpdateCommandOptions, UpdateStatusOptions, UpdateWizardOptions };
+export { updateCommand, updateFinalizeCommand, updateStatusCommand, updateWizardCommand };
+export type {
+  UpdateCommandOptions,
+  UpdateFinalizeOptions,
+  UpdateStatusOptions,
+  UpdateWizardOptions,
+};
 
 function inheritedUpdateJson(command?: Command): boolean {
   return Boolean(inheritOptionFromParent<boolean>(command, "json"));
@@ -29,21 +35,6 @@ function inheritedUpdateTimeout(
     return timeout;
   }
   return inheritOptionFromParent<string>(command, "timeout");
-}
-
-type CommanderUpdateOptions = Record<string, unknown> & {
-  acknowledgeClawhubRisk?: boolean;
-  channel?: string;
-  dryRun?: boolean;
-  json?: boolean;
-  restart?: boolean;
-  tag?: string;
-  timeout?: string;
-  yes?: boolean;
-};
-
-function normalizeCommanderClawHubRiskOption(opts: CommanderUpdateOptions): boolean {
-  return opts.acknowledgeClawhubRisk === true || opts.acknowledgeClawHubRisk === true;
 }
 
 export function registerUpdateCli(program: Command) {
@@ -61,23 +52,17 @@ export function registerUpdateCli(program: Command) {
     )
     .option("--timeout <seconds>", "Timeout for each update step in seconds (default: 1800)")
     .option("--yes", "Skip confirmation prompts (non-interactive)", false)
-    .option(
-      "--acknowledge-clawhub-risk",
-      "Acknowledge ClawHub release trust warnings during post-update plugin sync",
-      false,
-    )
     .addHelpText("after", () => {
       const examples = [
         ["openclaw update", "Update a source checkout (git)"],
         ["openclaw update --channel beta", "Switch to beta channel (git + npm)"],
         ["openclaw update --channel dev", "Switch to dev channel (git + npm)"],
         ["openclaw update --tag beta", "One-off update to a dist-tag or version"],
-        ["openclaw update --tag main", "One-off package install from GitHub main"],
+        ["openclaw update --tag main", "One-off package update from GitHub main"],
         ["openclaw update --dry-run", "Preview actions without changing anything"],
         ["openclaw update --no-restart", "Update without restarting the service"],
         ["openclaw update --json", "Output result as JSON"],
         ["openclaw update --yes", "Non-interactive (accept downgrade prompts)"],
-        ["openclaw update --acknowledge-clawhub-risk", "Acknowledge ClawHub plugin trust warnings"],
         ["openclaw update wizard", "Interactive update wizard"],
         ["openclaw --update", "Shorthand for openclaw update"],
       ] as const;
@@ -93,10 +78,10 @@ ${theme.heading("Switch channels:")}
   - Use --channel stable|beta|dev to persist the update channel in config
   - Run openclaw update status to see the active channel and source
   - Use --tag <dist-tag|version|spec> for a one-off package update without persisting
+  - Use --tag main for a one-off package update from GitHub main
 
 ${theme.heading("Non-interactive:")}
   - Use --yes to accept downgrade prompts
-  - Use --acknowledge-clawhub-risk only after reviewing ClawHub plugin trust warnings
   - Combine with --channel/--tag/--no-restart/--json/--timeout as needed
   - Use --dry-run to preview actions without writing config/installing/restarting
 
@@ -111,17 +96,42 @@ ${theme.heading("Notes:")}
 
 ${theme.muted("Docs:")} ${formatDocsLink("/cli/update", "docs.openclaw.ai/cli/update")}`;
     })
-    .action(async (opts: CommanderUpdateOptions) => {
+    .action(async (opts) => {
       try {
         await updateCommand({
           json: Boolean(opts.json),
           restart: Boolean(opts.restart),
           dryRun: Boolean(opts.dryRun),
-          channel: opts.channel,
-          tag: opts.tag,
-          timeout: opts.timeout,
+          channel: opts.channel as string | undefined,
+          tag: opts.tag as string | undefined,
+          timeout: opts.timeout as string | undefined,
           yes: Boolean(opts.yes),
-          acknowledgeClawHubRisk: normalizeCommanderClawHubRiskOption(opts),
+        });
+      } catch (err) {
+        defaultRuntime.error(String(err));
+        defaultRuntime.exit(1);
+      }
+    });
+
+  update
+    .command("finalize", { hidden: true })
+    .description("Run OpenClaw update finalization after an external core runtime change")
+    .option("--json", "Output result as JSON", false)
+    .option("--channel <stable|beta|dev>", "Persist update channel for finalization")
+    .option(
+      "--timeout <seconds>",
+      "Timeout for update finalization steps in seconds (default: 1800)",
+    )
+    .option("--yes", "Skip confirmation prompts (non-interactive)", false)
+    .option("--no-restart", "Accepted for update command parity; finalization never restarts")
+    .action(async (opts, command) => {
+      try {
+        await updateFinalizeCommand({
+          json: Boolean(opts.json) || inheritedUpdateJson(command),
+          channel: opts.channel as string | undefined,
+          timeout: inheritedUpdateTimeout(opts, command),
+          yes: Boolean(opts.yes),
+          restart: false,
         });
       } catch (err) {
         defaultRuntime.error(String(err));

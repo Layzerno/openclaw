@@ -157,6 +157,10 @@ function installDiscoveryHooks(state: DiscoveryState, options: DiscoveryContract
           ...(metadata ? { metadata } : {}),
         }),
         buildOauthProviderAuthResult: vi.fn(),
+        buildCopilotIdeHeaders: vi.fn(() => ({
+          "Editor-Version": "vscode/1.96.2",
+          "User-Agent": "GitHubCopilotChat/0.26.7",
+        })),
         coerceSecretRef: (value: unknown) =>
           value && typeof value === "object" && !Array.isArray(value)
             ? (value as Record<string, unknown>)
@@ -713,6 +717,7 @@ export function describeMinimaxProviderDiscoveryContract(
         apiKey: "minimax-key",
       });
       const ids = providerModelIds(provider);
+      expect(ids).toContain("MiniMax-M3");
       expect(ids).toContain("MiniMax-M2.7");
       expect(ids).toContain("MiniMax-M2.7-highspeed");
     });
