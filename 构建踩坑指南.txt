@@ -96,5 +96,12 @@ github上awesome-openclaw-skills，找到后去clawhub搜
 
 
 
+关于打包镜像
+
+docker build -t openclaw:with-browser --build-arg OPENCLAW_INSTALL_BROWSER=1 .
+
+
+
+
 
 
